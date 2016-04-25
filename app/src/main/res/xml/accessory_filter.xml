@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+        <!--  0x0403 / 0x6001: FTDI FT232R UART  -->
+        <usb-device vendor-id="7936" product-id="8210"/>
+        <!--  0x2341 / Arduino  -->
+        <usb-device vendor-id="9025"/>
+        <!--  0x16C0 / 0x0483: Teensyduino   -->
+        <usb-device vendor-id="5824" product-id="1155"/>
+        <!--  0x10C4 / 0xEA60: CP210x UART Bridge  -->
+        <usb-device vendor-id="4292" product-id="60000"/>
+
+        <usb-device vendor-id="3368"/> <!-- mbed blue VID:0d28 PID:0204 NXP LPC1768 -->
+</resources>
