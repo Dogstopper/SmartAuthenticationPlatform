@@ -19,7 +19,7 @@
  * Project home page: https://github.com/mik3y/usb-serial-for-android
  */
 
-package src.com.hoho.android.usbserial.examples;
+package com.ece4180.authentication;
 
 import android.app.Activity;
 import android.content.Context;

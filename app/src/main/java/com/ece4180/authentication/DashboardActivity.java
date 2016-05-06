@@ -1,25 +1,6 @@
-/* Copyright 2011-2013 Google Inc.
- * Copyright 2013 mike wakerly <opensource@hoho.com>
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
- * USA.
- *
- * Project home page: https://github.com/mik3y/usb-serial-for-android
- */
+package com.ece4180.authentication;
 
-package src.com.hoho.android.usbserial.examples;
+import edu.gatech.team4180.dsp.*;
 
 import android.app.Activity;
 import android.content.Context;
@@ -29,14 +10,13 @@ import android.graphics.Bitmap;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
+import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.speech.RecognizerIntent;
 import android.util.Log;
-import android.widget.CheckBox;
-import android.widget.CompoundButton;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -44,6 +24,7 @@ import android.widget.Toast;
 import com.felhr.usbserial.UsbSerialDevice;
 import com.felhr.usbserial.UsbSerialInterface;
 
+import com.felhr.utils.HexData;
 import com.kairos.*;
 
 import org.json.JSONArray;
@@ -51,7 +32,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -66,6 +49,7 @@ public class DashboardActivity extends Activity {
 
     private static final int FEATURE_FACE = 0x01;
     private static final int FEATURE_SPEECH = 0x02;
+    private static final int FEATURE_SPEECH_AUTH = 0x03;
 
     private static final byte[] SUCCESS_RESPONSE = new byte[] { (byte) 0x55 };
     private static final byte[] FAILURE_RESPONSE = new byte[] { (byte) 0x8A };
@@ -83,8 +67,11 @@ public class DashboardActivity extends Activity {
     private volatile boolean started = false;
     private Intent intent;
 
+    private boolean enrolling;
+
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
 
+    private ByteBuffer buff = ByteBuffer.allocate(100);
     private UsbSerialInterface.UsbReadCallback mCallback = new UsbSerialInterface.UsbReadCallback() {
 
         @Override
@@ -93,27 +80,48 @@ public class DashboardActivity extends Activity {
                 DashboardActivity.this.runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        parseSerial(data);
+                        buff.put(data);
+                        writeSerialToConsole(data);
+                        // Wait until we have enough data to parse. Sometimes we have
+                        // too few bytes to parse correctly.
+                        if (buff.position() >= buff.get(0)) {
+                            parseSerial();
+                        }
                     }
                 });
             }
         }
     };
 
+    private void writeSerialToConsole(byte[] serial) {
+        mDumpTextView.append("Number of bytes: " + serial.length + "\n");
+        mDumpTextView.append(HexData.hexToString(serial) + "\n");
+        mDumpTextView.append("Buffer Values: " + HexData.hexToString(buff.array()));
+    }
+
     private void writeFailure() {
+
         serial.write(FAILURE_RESPONSE);
         Log.d("SERIAL WRITE", "Failure");
         Toast.makeText(this, "FAILURE", Toast.LENGTH_LONG).show();
+        started = false;
     }
 
     private void writeSuccess() {
         serial.write(SUCCESS_RESPONSE);
         Log.d("SERIAL WRITE", "Success");
         Toast.makeText(this, "Success", Toast.LENGTH_LONG).show();
+        started = false;
     }
 
-    private void parseSerial(byte[] data) {
+    private void parseSerial() {
+        byte[] data = new byte[buff.get(0)];
+        buff.rewind();
+        buff.position(1); // Skip the length field.
+        buff.get(data, 0, data.length);
+        buff.clear();
         if (data != null && data.length > 0 && !started) {
+            Log.d("DASHBOARD", Arrays.toString(data));
             // Check for enrollment
             if (data[0] == 0x01) {
                 StringBuffer buff = new StringBuffer();
@@ -132,6 +140,12 @@ public class DashboardActivity extends Activity {
                     started = true;
                     startRecordedSpeech(ENROLL_SPEECH_CODE);
                 }
+//                else if (feature == FEATURE_SPEECH_AUTH) {
+//                    started = true;
+//                    enrolling = true;
+//                    Toast.makeText(this, "3", Toast.LENGTH_SHORT).show();
+//                    recordAudio();
+//                }
             }
 
             // Check for Authentication
@@ -152,6 +166,12 @@ public class DashboardActivity extends Activity {
                     started = true;
                     startRecordedSpeech(RECOGNIZE_SPEECH_CODE);
                 }
+//                else if (feature == FEATURE_SPEECH_AUTH) {
+//                    enrolling = false;
+//                    started = true;
+//                    Toast.makeText(this, "3", Toast.LENGTH_SHORT);
+//                    recordAudio();
+//                }
             }
 
 //            // Check Delete feature
@@ -202,21 +222,7 @@ public class DashboardActivity extends Activity {
         String app_id = "24a7b953";
         String api_key = "75704dbd16a8c25b5e4c3638f9b57399";
         myKairos.setAuthentication(this, app_id, api_key);
-    }
 
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (serial != null) {
-            serial.close();
-            serial = null;
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
         Log.d(TAG, "Resumed, port=" + serial);
         if (serial == null) {
             mTitleTextView.setText("No serial device.");
@@ -242,6 +248,21 @@ public class DashboardActivity extends Activity {
 
             mTitleTextView.setText("Serial device: " + serial.getClass().getSimpleName());
         }
+    }
+
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (serial != null) {
+            serial.close();
+            serial = null;
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
     }
 
     static void show(Context context, UsbSerialDevice port, UsbDevice device) {
@@ -270,16 +291,6 @@ public class DashboardActivity extends Activity {
         intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         this.startActivityForResult(intent, RECOGNIZE_RESPONSE_CODE);
     }
-
-//    private void kairosDeleteUser() {
-//        try {
-//            myKairos.deleteSubject(userId, galleryId, deleteListener);
-//        }  catch (JSONException e) {
-//            e.printStackTrace();
-//        } catch (UnsupportedEncodingException e) {
-//            e.printStackTrace();
-//        }
-//    }
 
     private void clearAllUsers() {
         SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
@@ -389,8 +400,11 @@ public class DashboardActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
-
-        if (requestCode == ENROLL_SPEECH_CODE) {
+        if (resultCode == RESULT_CANCELED) {
+            writeFailure();
+            return;
+        }
+        if (requestCode == ENROLL_SPEECH_CODE && resultCode == RESULT_OK) {
             ArrayList<String> matches = intent.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
 
             SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
@@ -403,7 +417,7 @@ public class DashboardActivity extends Activity {
             return;
         }
 
-        if (requestCode == RECOGNIZE_SPEECH_CODE) {
+        if (requestCode == RECOGNIZE_SPEECH_CODE && resultCode == RESULT_OK) {
             // Get the saved string
             SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
             String toMatch = settings.getString(userId, "");
@@ -444,5 +458,114 @@ public class DashboardActivity extends Activity {
             }
         }
     }
+
+//    final int SAMPLE_RATE = 44100;
+//    short[] audioBuffer;
+//    final String LOG_TAG = "Output";
+//    boolean shouldContinue = true;
+//
+//    public void recordAudio(){
+//        new Thread(new Runnable(){
+//
+//            @Override
+//            public void run(){
+//                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
+//
+//                //AudioRecord record = findAudioRecord();
+//
+//                // buffer size in bytes
+////                int bufferSize = AudioRecord.getMinBufferSize(record.getSampleRate (),
+////                        record.getChannelConfiguration (),
+////                        record.getAudioFormat());
+//                int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE,
+//                        AudioFormat.CHANNEL_IN_MONO,
+//                        AudioFormat.ENCODING_PCM_16BIT);
+//
+//                if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+//                    bufferSize = SAMPLE_RATE * 2;
+//                }
+//                audioBuffer = new short[bufferSize / 2];
+//
+//                AudioRecord record = new AudioRecord(MediaRecorder.AudioSource.DEFAULT,
+//                        SAMPLE_RATE,
+//                        AudioFormat.CHANNEL_IN_MONO,
+//                        AudioFormat.ENCODING_PCM_16BIT,
+//                        bufferSize);
+//                int result = record.getState();
+//                if (record.getState() != AudioRecord.STATE_INITIALIZED) {
+//                    Log.e(LOG_TAG, "Audio Record can't initialize!");
+//                    return;
+//                }
+//                record.startRecording();
+//
+//                Log.v(LOG_TAG, "Start recording");
+//
+//                long shortsRead = 0;
+//                while (shouldContinue) {
+//                    int numberOfShort = record.read(audioBuffer, 0, audioBuffer.length, record.READ_BLOCKING);
+//                    shortsRead += numberOfShort;
+//                    for (float f: audioBuffer){
+//                        Log.d(LOG_TAG, "" + f);
+//                    }
+//                    shouldContinue = false;
+//                }
+//
+//                record.stop();
+//                record.release();
+//
+//                Log.v(LOG_TAG, String.format("Recording stopped. Samples read: %d", shortsRead));
+//                DashboardActivity.this.runOnUiThread(new Runnable() {
+//                    @Override
+//                    public void run() {
+//                        convertArray();
+//                    }
+//                });
+//            }
+//        }).start();
+//    }
+//
+//    private void convertArray() {
+//        Toast.makeText(this, "Thanks!", Toast.LENGTH_LONG).show();
+//        double[] doubles = DSP.float_to_double_array(audioBuffer);
+//
+//        for (double d : doubles) {
+//            Log.d(LOG_TAG, "" + d);
+//        }
+//        //Get voice features from the signal
+//        SpeechFeatures reference = new SpeechFeatures(doubles);
+//        if (enrolling) {
+//            enrollSpeechAuth(reference);
+//
+//        }
+//        else {
+//            authSpeechAuth(reference);
+//        }
+//    }
+//
+//    private void enrollSpeechAuth(SpeechFeatures reference) {
+//        SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
+//        SharedPreferences.Editor editor = settings.edit();
+//
+//        double[] savable_format = reference.toStorableArray();
+//        editor.putString(userId + "Code", Arrays.toString(savable_format));
+//
+//        // Commit the edits!
+//        editor.commit();
+//        writeSuccess();
+//        return;
+//    }
+//
+//    private void authSpeechAuth(SpeechFeatures reference) {
+//        SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
+//        String toMatch = settings.getString(userId + "Code", "");
+//
+//        if (toMatch.equalsIgnoreCase(Arrays.toString(reference.toStorableArray()))) {
+//
+//            writeSuccess();
+//            return;
+//        }
+//        writeFailure();
+//        return;
+//    }
 
 }

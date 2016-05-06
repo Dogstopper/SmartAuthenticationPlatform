@@ -27,6 +27,7 @@ dependencies {
     compile fileTree(dir: 'libs', include: ['*'])
     testCompile 'junit:junit:4.12'
     compile files('libs/KairosSDK.jar')
+    compile files('libs/SpeakerVerification_java7.jar')
     compile 'com.github.felHR85:UsbSerial:4.2'
     compile 'com.android.support:appcompat-v7:23.1.1'
     compile 'com.android.support:design:23.1.1'
